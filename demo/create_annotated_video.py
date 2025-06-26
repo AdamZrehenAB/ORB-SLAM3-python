@@ -3,8 +3,7 @@ import argparse
 from glob import glob
 import os 
 import cv2
-import numpy as np
-import time
+
 
 def create_annotated_video(vocab_file, settings_file, dataset_path, output_video_path, num_frames=30, save_frames=True):
     """
@@ -50,8 +49,13 @@ def create_annotated_video(vocab_file, settings_file, dataset_path, output_video
     print(f"Video dimensions: {width}x{height}")
     
     # Initialize video writer
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (width, height))
+    try:
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_writer = cv2.VideoWriter(output_video_path, fourcc, 10.0, (width, height))
+    except Exception as e:
+        print(f"Failed to create video writer: {e}")
+        slam.shutdown()
+        return
     
     if not video_writer.isOpened():
         print(f"Failed to create video writer for {output_video_path}")

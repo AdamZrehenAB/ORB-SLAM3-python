@@ -4,3 +4,6 @@ outputs/
 examples/
 dist/
 __pycache__
+/annotated_slam_video_frames
+*.mp4
+*.png
