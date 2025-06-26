@@ -3,9 +3,11 @@ import argparse
 from glob import glob
 import os 
 import cv2
+import csv
+import numpy as np
 
 
-def create_annotated_video(vocab_file, settings_file, dataset_path, output_video_path, num_frames=30, save_frames=True):
+def create_annotated_video(vocab_file, settings_file, dataset_path, output_video_path, num_frames=30, save_frames=True, save_trajectory_csv=True):
     """
     Process the first N frames and create an MP4 video from annotated frames.
     
@@ -16,6 +18,7 @@ def create_annotated_video(vocab_file, settings_file, dataset_path, output_video
         output_video_path: Path for output MP4 file
         num_frames: Number of frames to process (default: 30)
         save_frames: Whether to save individual frames (default: True)
+        save_trajectory_csv: Whether to save trajectory points to CSV (default: True)
     """
     
     img_files = sorted(glob(os.path.join(dataset_path, '*.png')))
@@ -66,6 +69,7 @@ def create_annotated_video(vocab_file, settings_file, dataset_path, output_video
     processed_frames = 0
     initialization_frames = 0
     trajectory_points = []  # Store trajectory points for visualization
+    trajectory_data = []  # Store trajectory data with metadata for CSV
     
     for k, img_file in enumerate(img_files):
         if frame_count >= num_frames:
@@ -94,6 +98,17 @@ def create_annotated_video(vocab_file, settings_file, dataset_path, output_video
                     # Extract position (translation part of the 4x4 matrix)
                     position = latest_pose[:3, 3]  # x, y, z coordinates
                     trajectory_points.append(position)
+                    
+                    # Store trajectory data with metadata for CSV
+                    trajectory_data.append({
+                        'frame_number': frame_count + 1,
+                        'timestamp': timestamp,
+                        'x_meters': float(position[0]),
+                        'y_meters': float(position[1]), 
+                        'z_meters': float(position[2]),
+                        'success': success
+                    })
+                    
                     print(f"Trajectory point {len(trajectory_points)}: {position}")
             except Exception as e:
                 print(f"Warning: Could not get trajectory data: {e}")
@@ -141,6 +156,12 @@ def create_annotated_video(vocab_file, settings_file, dataset_path, output_video
         
         frame_count += 1
     
+    # Save trajectory data to CSV
+    if save_trajectory_csv and trajectory_data:
+        csv_filename = output_video_path.replace('.mp4', '_trajectory.csv')
+        save_trajectory_to_csv(trajectory_data, csv_filename)
+        print(f"Trajectory data saved to: {csv_filename}")
+    
     # Release resources
     video_writer.release()
     slam.shutdown()
@@ -159,6 +180,62 @@ def create_annotated_video(vocab_file, settings_file, dataset_path, output_video
         print(f"Video file size: {file_size / (1024*1024):.2f} MB")
     else:
         print("Warning: Video file was not created!")
+
+
+def save_trajectory_to_csv(trajectory_data, csv_filename):
+    """
+    Save trajectory data to CSV file.
+    
+    Args:
+        trajectory_data: List of dictionaries containing trajectory information
+        csv_filename: Output CSV file path
+    """
+    if not trajectory_data:
+        print("No trajectory data to save")
+        return
+    
+    try:
+        with open(csv_filename, 'w', newline='') as csvfile:
+            fieldnames = ['frame_number', 'timestamp', 'x_meters', 'y_meters', 'z_meters', 'success']
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            
+            # Write header
+            writer.writeheader()
+            
+            # Write trajectory data
+            for data in trajectory_data:
+                writer.writerow(data)
+        
+        print(f"Trajectory CSV saved successfully: {csv_filename}")
+        print(f"Total trajectory points: {len(trajectory_data)}")
+        
+        # Print some statistics
+        if len(trajectory_data) > 1:
+            x_coords = [d['x_meters'] for d in trajectory_data]
+            y_coords = [d['y_meters'] for d in trajectory_data]
+            z_coords = [d['z_meters'] for d in trajectory_data]
+            
+            print(f"Trajectory statistics:")
+            print(f"  X range: {min(x_coords):.3f} to {max(x_coords):.3f} meters")
+            print(f"  Y range: {min(y_coords):.3f} to {max(y_coords):.3f} meters")
+            print(f"  Z range: {min(z_coords):.3f} to {max(z_coords):.3f} meters")
+            
+            # Calculate total distance traveled
+            total_distance = 0
+            for i in range(1, len(trajectory_data)):
+                prev_pos = np.array([trajectory_data[i-1]['x_meters'], 
+                                   trajectory_data[i-1]['y_meters'], 
+                                   trajectory_data[i-1]['z_meters']])
+                curr_pos = np.array([trajectory_data[i]['x_meters'], 
+                                   trajectory_data[i]['y_meters'], 
+                                   trajectory_data[i]['z_meters']])
+                total_distance += np.linalg.norm(curr_pos - prev_pos)
+            
+            print(f"  Total distance traveled: {total_distance:.3f} meters")
+            
+    except Exception as e:
+        print(f"Error saving trajectory CSV: {e}")
+
 
 def draw_trajectory(frame, trajectory_points):
     """
@@ -231,6 +308,8 @@ if __name__ == "__main__":
                        help="Number of frames to process (default: 50)")
     parser.add_argument("--no_save_frames", action="store_true", 
                        help="Don't save individual frames")
+    parser.add_argument("--no_save_trajectory_csv", action="store_true", 
+                       help="Don't save trajectory data to CSV")
     
     args = parser.parse_args()
     
@@ -240,5 +319,6 @@ if __name__ == "__main__":
         dataset_path=args.dataset_path,
         output_video_path=args.output_video,
         num_frames=args.num_frames,
-        save_frames=not args.no_save_frames
+        save_frames=not args.no_save_frames,
+        save_trajectory_csv=not args.no_save_trajectory_csv
     ) 
